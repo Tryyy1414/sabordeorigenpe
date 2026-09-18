@@ -15,10 +15,11 @@ const CONFIG = {
 };
 
 // ═══════════════════════════════════════════════════════════
-// PRODUCT DATA
+// PRODUCT DATA  — cargado desde js/tony.js (window.TONY_PRODUCTS)
 // ═══════════════════════════════════════════════════════════
 
-const PRODUCTS = [
+// Alias principal: los datos de Oxapampa vienen de tony.js
+const PRODUCTS = (typeof window.TONY_PRODUCTS !== 'undefined') ? window.TONY_PRODUCTS : [
   {
     id: 'cafe-specialty',
     name: 'Café de Especialidad',
@@ -131,6 +132,7 @@ const PRODUCTS = [
     </svg>`,
   },
 ];
+// Fin fallback — si tony.js está cargado, PRODUCTS = TONY_PRODUCTS
 
 // ═══════════════════════════════════════════════════════════
 // STATE
@@ -206,28 +208,31 @@ function initRegionTabs() {
 // PRODUCT RENDERING
 // ═══════════════════════════════════════════════════════════
 
-function buildPlaceholder(icon, label) {
-  return `
-    <div class="card-img-placeholder">
-      ${icon}
-      <span>${label}</span>
-    </div>
-  `;
-}
+// Función global: oculta imagen rota y muestra placeholder
+window._cardImgError = function (img) {
+  img.style.display = 'none';
+  const placeholder = img.nextElementSibling;
+  if (placeholder) placeholder.style.display = 'flex';
+};
 
 function buildCard(product, index) {
-  const inCart = cart.find(i => i.product.id === product.id);
+  const hasImg = product.mainImage && product.mainImage.trim() !== '';
+
   return `
     <article class="product-card" style="animation-delay:${index * 0.07}s" data-id="${product.id}">
       <div class="card-img">
         ${product.badge ? `<span class="card-badge">${product.badge}</span>` : ''}
-        ${buildPlaceholder(product.icon, 'Imagen próximamente')}
+        ${hasImg ? `<img src="${product.mainImage}" alt="${(product.title || product.name || '').replace(/"/g, '&quot;')}" loading="lazy" onerror="_cardImgError(this)">` : ''}
+        <div class="card-img-placeholder" style="${hasImg ? 'display:none;' : ''}">
+          <svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+          <span>Imagen próximamente</span>
+        </div>
       </div>
       <div class="card-body">
-        <p class="card-region">${product.region}</p>
-        <h3 class="card-name">${product.name}</h3>
-        <p class="card-desc">${product.shortDesc}</p>
-        <p class="card-price">${fmt(product.price)}<span>${product.unit}</span></p>
+        <p class="card-region">${product.region || ''}</p>
+        <h3 class="card-name">${product.title || product.name || ''}</h3>
+        <p class="card-desc">${product.shortDesc || product.description || ''}</p>
+        <p class="card-price">${fmt(product.price)}<span>${product.unit || ''}</span></p>
         <div class="card-actions">
           <button class="btn btn-ghost btn-sm" id="details-${product.id}" onclick="openModal('${product.id}')">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
@@ -287,10 +292,15 @@ function renderProducts() {
 // ═══════════════════════════════════════════════════════════
 
 function buildWspLink(product) {
+  const productName = product.title || product.name || '';
+  const price = product.price ? ` (S/ ${Number(product.price).toFixed(2)})` : '';
   const msg = encodeURIComponent(
-    `Hola, estoy interesado en el producto *${product.name}* del catálogo de ${product.region}. ¿Podrías darme más información?`
+    `Hola, me interesa: *${productName}*${price}. ¿Tienen stock disponible?`
   );
-  return `https://api.whatsapp.com/send?phone=${CONFIG.whatsapp}&text=${msg}`;
+
+  // Si el producto tiene su propio WhatsApp (tienda específica), usarlo
+  const rawTarget = (product.sellerWhatsapp || CONFIG.whatsapp || '').trim().replace(/^@/, '');
+  return `https://wa.me/${rawTarget}?text=${msg}`;
 }
 
 function buildCartWspLink() {
@@ -321,22 +331,55 @@ function openModal(productId) {
   modalProduct = product;
 
   const overlay = $('#modal-overlay');
-  $('#modal-region').textContent = product.region;
-  $('#modal-title').textContent = product.name;
-  $('#modal-price').textContent = `${fmt(product.price)} ${product.unit}`;
-  $('#modal-desc').textContent = product.fullDesc;
+  $('#modal-region').textContent = product.region || '';
+  $('#modal-title').textContent = product.title || product.name || '';
+  $('#modal-price').textContent = `${fmt(product.price)} ${product.unit || ''}`;
+  $('#modal-desc').textContent = product.fullDesc || product.description || '';
 
   // Tags
-  $('#modal-tags').innerHTML = product.tags
-    .map(t => `<span class="modal-tag">${t}</span>`).join('');
+  $('#modal-tags').innerHTML = (product.tags || []).map(t => `<span class="modal-tag">${t}</span>`).join('');
 
-  // Placeholder image
-  $('#modal-img').innerHTML = `
-    <div class="modal-img-placeholder">
-      ${product.icon}
-      <span>Imagen próximamente</span>
-    </div>
-  `;
+  // Galería de imágenes real
+  const imgEl = $('#modal-img');
+  const images = product.images && product.images.length ? product.images : [];
+  if (images.length > 0) {
+    let currentImg = 0;
+    const renderGallery = () => {
+      imgEl.innerHTML = `
+        <div class="modal-gallery" style="position:relative;">
+          <img id="modal-gallery-img" src="${images[currentImg]}"
+               alt="${product.title || product.name} — imagen ${currentImg + 1}"
+               style="width:100%;height:100%;object-fit:cover;border-radius:inherit;"
+               onerror="this.style.display='none'">
+          ${images.length > 1 ? `
+            <button class="gallery-btn gallery-prev" onclick="window._galleryNav(-1)" aria-label="Imagen anterior"
+              style="position:absolute;left:8px;top:50%;transform:translateY(-50%);background:rgba(0,0,0,.4);border:none;color:#fff;border-radius:50%;width:32px;height:32px;cursor:pointer;font-size:18px;line-height:1;">&lsaquo;</button>
+            <button class="gallery-btn gallery-next" onclick="window._galleryNav(1)" aria-label="Imagen siguiente"
+              style="position:absolute;right:8px;top:50%;transform:translateY(-50%);background:rgba(0,0,0,.4);border:none;color:#fff;border-radius:50%;width:32px;height:32px;cursor:pointer;font-size:18px;line-height:1;">&rsaquo;</button>
+            <div class="gallery-dots" style="position:absolute;bottom:8px;left:50%;transform:translateX(-50%);display:flex;gap:5px;">
+              ${images.map((_, i) => `<span onclick="window._galleryGoto(${i})" style="width:7px;height:7px;border-radius:50%;background:${i===currentImg?'#fff':'rgba(255,255,255,.5)'};cursor:pointer;transition:background .2s;"></span>`).join('')}
+            </div>
+          ` : ''}
+        </div>
+      `;
+    };
+    window._galleryNav = (dir) => {
+      currentImg = (currentImg + dir + images.length) % images.length;
+      renderGallery();
+    };
+    window._galleryGoto = (idx) => {
+      currentImg = idx;
+      renderGallery();
+    };
+    renderGallery();
+  } else {
+    imgEl.innerHTML = `
+      <div class="modal-img-placeholder">
+        ${product.icon || ''}
+        <span>Imagen próximamente</span>
+      </div>
+    `;
+  }
 
   // WhatsApp link
   $('#modal-whatsapp').href = buildWspLink(product);

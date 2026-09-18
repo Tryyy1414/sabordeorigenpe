@@ -2035,3 +2035,72 @@ em { font-family: var(--ff-display); font-style: italic; color: var(--clr-primar
   background: rgba(212,145,74,0.3);
   color: var(--clr-text);
 }
+
+/* ─────────────────────────────────────────────────────────────
+   GALERÍA DE IMÁGENES DEL MODAL
+───────────────────────────────────────────────────────────── */
+.modal-gallery {
+  width: 100%;
+  height: 100%;
+  position: relative;
+}
+.modal-gallery img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: inherit;
+  transition: opacity 0.3s ease;
+}
+.gallery-btn {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  background: rgba(0,0,0,0.45);
+  border: none;
+  color: #fff;
+  border-radius: 50%;
+  width: 34px;
+  height: 34px;
+  font-size: 20px;
+  line-height: 1;
+  cursor: pointer;
+  transition: background 0.2s, transform 0.2s;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.gallery-btn:hover {
+  background: rgba(0,0,0,0.75);
+  transform: translateY(-50%) scale(1.1);
+}
+.gallery-prev { left: 8px; }
+.gallery-next { right: 8px; }
+
+.gallery-dots {
+  position: absolute;
+  bottom: 10px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  gap: 5px;
+  z-index: 2;
+}
+.gallery-dots span {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  cursor: pointer;
+  transition: background 0.2s, transform 0.2s;
+}
+.gallery-dots span:hover { transform: scale(1.25); }
+
+/* Tarjetas con imagen real — ajuste sutil */
+.card-img img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transition: transform 0.5s ease;
+  display: block;
+}
+.product-card:hover .card-img img { transform: scale(1.06); }
