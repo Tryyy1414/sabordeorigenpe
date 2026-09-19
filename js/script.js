@@ -1,5 +1,5 @@
 /* ════════════════════════════════════════════════════════════
-   SABORES DE ORIGEN — script.js
+   SABOR DE ORIGEN — script.js
    Cart, Modals, Product Rendering, WhatsApp Integration
    ════════════════════════════════════════════════════════════ */
 
@@ -12,6 +12,25 @@
 const CONFIG = {
   whatsapp: '51999999999', // ← Cambia esto por el número real
   region: 'Oxapampa',
+};
+
+// Mapa de categorías: key interna → etiqueta visible
+const CATEGORY_LABELS = {
+  todos: 'Todos los productos',
+  cafe: 'Café',
+  cacao: 'Cacao & Chocolate',
+  miel: 'Miel de Abeja',
+  quesos: 'Quesos & Lácteos',
+  embutidos: 'Embutidos Artesanales',
+};
+
+// Regiones productoras por categoría
+const REGION_MAP = {
+  cafe: ['Cajamarca', 'Amazonas', 'Oxapampa', 'Junín', 'Cusco', 'Puno'],
+  cacao: ['Piura', 'San Martín', 'Huánuco', 'Ucayali', 'Junín', 'Oxapampa', 'Cusco'],
+  miel: ['Oxapampa', 'Lambayeque', 'Junín'],
+  quesos: ['Cajamarca', 'Oxapampa', 'Junín', 'Puno', 'Arequipa'],
+  embutidos: ['Oxapampa', 'San Martín'],
 };
 
 // ═══════════════════════════════════════════════════════════
@@ -47,7 +66,7 @@ const PRODUCTS = (typeof window.TONY_PRODUCTS !== 'undefined') ? window.TONY_PRO
     unit: 'x 500g',
     badge: 'Orgánico',
     shortDesc: 'Grano de cacao fino de aroma, certificado orgánico. De la selva central peruana.',
-    fullDesc: 'Cacao fino de aroma del tipo CCN-51 y nativo cultivado en las laderas tropicales de Oxapampa. Certificación orgánica sin pesticidas ni agroquímicos. Fermentado naturalmente por 5-6 días y secado al sol. Presenta sabores florales, de frutas tropicales y con acidez suave. Ideal para elaborar chocolate artesanal, postres y bebidas.',
+    fullDesc: 'Cacao fino de aroma del tipo CCN-51 y nativo cultivado en las laderas tropicales de Oxapampa. Certificación orgánica sin pesticidas ni agroquímicos. Fermentado naturalmente por 5-6 días y secado al sol. Presenta sabor florales, de frutas tropicales y con acidez suave. Ideal para elaborar chocolate artesanal, postres y bebidas.',
     tags: ['Certificado orgánico', 'Fino de aroma', 'Sin pesticidas', 'Grano entero'],
     icon: `<svg width="52" height="52" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.1">
       <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2z"/>
@@ -139,7 +158,8 @@ const PRODUCTS = (typeof window.TONY_PRODUCTS !== 'undefined') ? window.TONY_PRO
 // ═══════════════════════════════════════════════════════════
 
 let cart = [];         // [{ product, qty }]
-let activeRegion = 'oxapampa';
+let activeCategory = 'todos';
+let activeDistrict = null;
 let modalProduct = null;
 
 // ═══════════════════════════════════════════════════════════
@@ -188,17 +208,50 @@ function initHeader() {
 }
 
 // ═══════════════════════════════════════════════════════════
-// REGION TABS
+// SIDEBAR (MOBILE)
 // ═══════════════════════════════════════════════════════════
 
-function initRegionTabs() {
-  const tabs = $$('.region-tab');
+function initSidebar() {
+  const sidebar = $('#catalog-sidebar');
+  const overlay = $('#sidebar-overlay');
+  const toggleBtn = $('#filter-toggle-btn');
+  const closeBtn = $('#sidebar-close');
+
+  if (!sidebar || !toggleBtn) return;
+
+  const openSidebar = () => {
+    sidebar.classList.add('open');
+    overlay.classList.add('active');
+    toggleBtn.setAttribute('aria-expanded', true);
+    document.body.classList.add('sidebar-open');
+  };
+
+  const closeSidebar = () => {
+    sidebar.classList.remove('open');
+    overlay.classList.remove('active');
+    toggleBtn.setAttribute('aria-expanded', false);
+    document.body.classList.remove('sidebar-open');
+  };
+
+  toggleBtn.addEventListener('click', openSidebar);
+  closeBtn.addEventListener('click', closeSidebar);
+  overlay.addEventListener('click', closeSidebar);
+}
+
+// ═══════════════════════════════════════════════════════════
+// CATEGORY TABS
+// ═══════════════════════════════════════════════════════════
+
+function initCategoryTabs() {
+  const tabs = $$('.category-tab');
   tabs.forEach(tab => {
     tab.addEventListener('click', () => {
       tabs.forEach(t => { t.classList.remove('active'); t.setAttribute('aria-selected', false); });
       tab.classList.add('active');
       tab.setAttribute('aria-selected', true);
-      activeRegion = tab.dataset.region;
+      activeCategory = tab.dataset.category;
+      activeDistrict = null; // Reset district filter
+      renderDistrictInfo();
       renderProducts();
     });
   });
@@ -269,22 +322,94 @@ function buildComingSoon(regionName) {
   `;
 }
 
+// Categorías de los productos actuales (cacao & chocolate)
+// Los productos de tony.js tienen category: 'Chocolates' o 'Packs'
+// Mapeamos esas etiquetas internas a nuestras categorías de filtro
+function getProductCategory(product) {
+  const cat = (product.category || '').toLowerCase();
+  const name = (product.name || product.title || '').toLowerCase();
+  if (cat === 'chocolates' || cat === 'packs') return 'cacao';
+  if (name.includes('café') || name.includes('cafe') || name.includes('coffee')) return 'cafe';
+  if (name.includes('miel')) return 'miel';
+  if (name.includes('queso') || name.includes('lácteo') || name.includes('lacteo')) return 'quesos';
+  if (name.includes('embutido') || name.includes('salchicha') || name.includes('chorizo')) return 'embutidos';
+  return 'cacao'; // fallback para productos de tonny
+}
+
+function renderDistrictInfo() {
+  const panel = $('#district-info');
+  if (!panel) return;
+
+  if (activeCategory === 'todos' || !REGION_MAP[activeCategory]) {
+    panel.innerHTML = '';
+    panel.style.display = 'none';
+    return;
+  }
+
+  const regions = REGION_MAP[activeCategory];
+  const html = `
+    <div class="district-info-inner">
+      <p class="district-info-label">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s-8-4.5-8-11.8A8 8 0 0 1 12 2a8 8 0 0 1 8 8.2c0 7.3-8 11.8-8 11.8z"/><circle cx="12" cy="10" r="3"/></svg>
+        Regiones productoras de <strong>${CATEGORY_LABELS[activeCategory]}</strong>:
+      </p>
+      <div class="district-groups">
+        <div class="district-group-items">
+          ${regions.map(r => `<button class="district-chip${activeDistrict === r ? ' active' : ''}" data-district="${r}">${r}</button>`).join('')}
+        </div>
+      </div>
+    </div>
+  `;
+  panel.innerHTML = html;
+  panel.style.display = 'block';
+
+  // Attach event listeners for chips
+  $$('.district-chip', panel).forEach(chip => {
+    chip.addEventListener('click', (e) => {
+      const selected = e.target.dataset.district;
+      // Toggle logic
+      if (activeDistrict === selected) {
+        activeDistrict = null;
+      } else {
+        activeDistrict = selected;
+      }
+      renderDistrictInfo(); // Re-render to update active states
+      renderProducts();
+
+      // On mobile, automatically close the sidebar after selection
+      const toggleBtn = $('#filter-toggle-btn');
+      if (toggleBtn && window.getComputedStyle(toggleBtn).display !== 'none') {
+        const closeBtn = $('#sidebar-close');
+        if (closeBtn) closeBtn.click();
+      }
+    });
+  });
+}
+
 function renderProducts() {
   const grid = $('#products-grid');
 
-  if (activeRegion === 'oxapampa') {
-    grid.innerHTML = PRODUCTS.map((p, i) => buildCard(p, i)).join('');
-    grid.removeAttribute('hidden');
-  } else {
-    const labels = {
-      cusco: 'Cusco',
-      arequipa: 'Arequipa',
-      piura: 'Piura',
-      loreto: 'Loreto',
-    };
-    grid.innerHTML = buildComingSoon(labels[activeRegion] || activeRegion);
-    grid.removeAttribute('hidden');
+  let filtered = PRODUCTS;
+  if (activeCategory !== 'todos') {
+    filtered = filtered.filter(p => getProductCategory(p) === activeCategory);
   }
+
+  if (activeDistrict) {
+    const term = activeDistrict.toLowerCase();
+    filtered = filtered.filter(p => {
+      const r = (p.region || '').toLowerCase();
+      const d = (p.description || p.fullDesc || '').toLowerCase();
+      const t = (p.title || p.name || '').toLowerCase();
+      return r.includes(term) || d.includes(term) || t.includes(term);
+    });
+  }
+
+  if (filtered.length > 0) {
+    grid.innerHTML = filtered.map((p, i) => buildCard(p, i)).join('');
+  } else {
+    grid.innerHTML = buildComingSoon(activeDistrict ? `${activeDistrict}` : (CATEGORY_LABELS[activeCategory] || activeCategory));
+  }
+  grid.removeAttribute('hidden');
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -310,7 +435,7 @@ function buildCartWspLink() {
   );
   const subtotal = cart.reduce((sum, { product, qty }) => sum + product.price * qty, 0);
   const body = [
-    '🛒 *Mi pedido — Sabores de Origen*',
+    '🛒 *Mi pedido — Sabor de Origen*',
     '',
     ...lines,
     '',
@@ -357,7 +482,7 @@ function openModal(productId) {
             <button class="gallery-btn gallery-next" onclick="window._galleryNav(1)" aria-label="Imagen siguiente"
               style="position:absolute;right:8px;top:50%;transform:translateY(-50%);background:rgba(0,0,0,.4);border:none;color:#fff;border-radius:50%;width:32px;height:32px;cursor:pointer;font-size:18px;line-height:1;">&rsaquo;</button>
             <div class="gallery-dots" style="position:absolute;bottom:8px;left:50%;transform:translateX(-50%);display:flex;gap:5px;">
-              ${images.map((_, i) => `<span onclick="window._galleryGoto(${i})" style="width:7px;height:7px;border-radius:50%;background:${i===currentImg?'#fff':'rgba(255,255,255,.5)'};cursor:pointer;transition:background .2s;"></span>`).join('')}
+              ${images.map((_, i) => `<span onclick="window._galleryGoto(${i})" style="width:7px;height:7px;border-radius:50%;background:${i === currentImg ? '#fff' : 'rgba(255,255,255,.5)'};cursor:pointer;transition:background .2s;"></span>`).join('')}
             </div>
           ` : ''}
         </div>
@@ -540,7 +665,7 @@ function initCart() {
 
 // Persist cart
 function saveCart() {
-  try { localStorage.setItem('sdo_cart', JSON.stringify(cart)); } catch (_) {}
+  try { localStorage.setItem('sdo_cart', JSON.stringify(cart)); } catch (_) { }
 }
 function loadCart() {
   try {
@@ -585,9 +710,8 @@ function bumpCartBadge() {
 function notifyMe(btn) {
   btn.textContent = '✓ Te avisaremos pronto';
   btn.disabled = true;
-  const tab = $$('.region-tab').find(t => t.dataset.region === activeRegion);
-  const regionName = tab ? tab.textContent.trim() : activeRegion;
-  const msg = encodeURIComponent(`Hola, me gustaría que me avisen cuando estén disponibles los productos de ${regionName}. ¡Gracias!`);
+  const catLabel = CATEGORY_LABELS[activeCategory] || activeCategory;
+  const msg = encodeURIComponent(`Hola, me gustaría que me avisen cuando estén disponibles los productos de ${catLabel}. ¡Gracias!`);
   setTimeout(() => {
     window.open(`https://api.whatsapp.com/send?phone=${CONFIG.whatsapp}&text=${msg}`, '_blank');
   }, 600);
@@ -630,7 +754,9 @@ function initScrollAnimations() {
 
 document.addEventListener('DOMContentLoaded', () => {
   initHeader();
-  initRegionTabs();
+  initSidebar();
+  initCategoryTabs();
+  renderDistrictInfo();
   renderProducts();
   initModal();
   initCart();
